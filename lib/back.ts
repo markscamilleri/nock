@@ -1,24 +1,25 @@
 'use strict'
 
-const assert = require('assert')
-const recorder = require('./recorder')
-const {
+import assert from 'assert'
+import recorder from './recorder'
+import {
   activate,
   disableNetConnect,
   enableNetConnect,
-  removeAll: cleanAll,
-} = require('./intercept')
-const { loadDefs, define } = require('./scope')
-const { back: debug } = require('./debug')
-const { format } = require('util')
-const path = require('path')
+  removeAll as cleanAll,
+} from './intercept'
+import { loadDefs, define } from './scope'
+import { back as debug } from './debug'
+import { format } from 'util'
+import path from 'path'
 
 let _mode = null
 
-let fs
+
+let fs: typeof import('fs');
 
 try {
-  fs = require('fs')
+  fs = await import('fs')
 } catch (err) {
   // do nothing, probably in browser
 }
