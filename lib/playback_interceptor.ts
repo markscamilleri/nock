@@ -1,10 +1,8 @@
-'use strict'
-
-const stream = require('stream')
-const util = require('util')
-const zlib = require('zlib')
-const { playback_interceptor: debug } = require('./debug')
-const common = require('./common')
+import stream from 'node:stream'
+import util from 'node:util'
+import zlib from 'node:zlib'
+import { playback_interceptor as debug } from './debug.js'
+import common from './common.js'
 
 function parseJSONRequestBody(req, requestBody) {
   if (!requestBody || !common.isJSONContent(req.headers)) {
@@ -107,6 +105,16 @@ function convertBodyToStream(body) {
   }
 
   return new ReadableBuffers([Buffer.from(body)])
+}
+
+type PlaybackInterceptorOptions = {
+  req: ClientRequest
+  socket: Socket
+  options: {}
+  requestBodyString: string
+  requestBodyIsUtf8Representable: boolean
+  response: ServerResponse
+  interceptor: Interceptor
 }
 
 /**
@@ -324,4 +332,4 @@ function playbackInterceptor({
   })
 }
 
-module.exports = { playbackInterceptor }
+export default { playbackInterceptor }

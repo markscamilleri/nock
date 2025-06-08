@@ -1,19 +1,25 @@
-'use strict'
+import { recorder as debug } from './debug.js'
+import querystring from 'querystring'
+import { inspect } from 'node:util'
 
-const { recorder: debug } = require('./debug')
-const querystring = require('querystring')
-const { inspect } = require('util')
+import common from './common.js'
+import { restoreOverriddenClientRequest } from './intercept.js'
+import { EventEmitter } from 'node:stream'
+import { gzipSync, brotliCompressSync, deflateSync } from 'node:zlib'
+import nodeInterceptors from '@mswjs/interceptors/presets/node'
+import { Definition } from './types/index.js'
 
-const common = require('./common')
-const { restoreOverriddenClientRequest } = require('./intercept')
-const { EventEmitter } = require('stream')
-const { gzipSync, brotliCompressSync, deflateSync } = require('zlib')
-const {
-  default: nodeInterceptors,
-} = require('@mswjs/interceptors/presets/node')
+export interface RecorderOptions {
+  dont_print?: boolean
+  output_objects?: boolean
+  enable_reqheaders_recording?: boolean
+  logging?: (content: string) => void
+  use_separator?: boolean
+}
+
 const SEPARATOR = '\n<<<<<<-- cut here -->>>>>>\n'
 let recordingInProgress = false
-let outputs = []
+let outputs: Definition[] = []
 
 // TODO: don't reuse the nodeInterceptors, create new ones.
 const clientRequestInterceptor = nodeInterceptors[0]
@@ -373,7 +379,7 @@ function clear() {
   outputs = []
 }
 
-module.exports = {
+export default {
   record,
   outputs: () => outputs,
   restore,

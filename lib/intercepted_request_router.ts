@@ -1,12 +1,10 @@
-'use strict'
-
-const { request_overrider: debug } = require('./debug')
-const { IncomingMessage, ClientRequest } = require('http')
-const propagate = require('propagate')
-const common = require('./common')
-const globalEmitter = require('./global_emitter')
-const Socket = require('./socket')
-const { playbackInterceptor } = require('./playback_interceptor')
+import { request_overrider as debug } from './debug.js'
+import { IncomingMessage, ClientRequest } from 'node:http'
+import propagate from 'propagate'
+import common from './common.js'
+import globalEmitter from './global_emitter.js'
+import Socket from './socket.js'
+import { playbackInterceptor } from './playback_interceptor.js'
 
 function socketOnClose(req) {
   debug('socket close')
@@ -27,7 +25,7 @@ function socketOnClose(req) {
  * Identify which interceptor ought to respond, if any, then delegate to
  * `playbackInterceptor()` to consume the request itself.
  */
-class InterceptedRequestRouter {
+export class InterceptedRequestRouter {
   constructor({ req, options, interceptors }) {
     this.req = req
     this.options = {
@@ -339,5 +337,3 @@ class InterceptedRequestRouter {
     }
   }
 }
-
-module.exports = { InterceptedRequestRouter }

@@ -1,10 +1,8 @@
-'use strict'
+import querystring from 'node:querystring'
 
-const querystring = require('querystring')
+import common from './common.js'
 
-const common = require('./common')
-
-module.exports = function matchBody(options, spec, body) {
+export default function matchBody(options, spec, body) {
   if (spec instanceof RegExp) {
     return spec.test(body)
   }

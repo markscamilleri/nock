@@ -1,21 +1,17 @@
-'use strict'
-
 /**
  * @module nock/intercept
  */
 
-const { InterceptedRequestRouter } = require('./intercepted_request_router')
-const common = require('./common')
-const { inherits } = require('util')
-const http = require('http')
-const { intercept: debug } = require('./debug')
-const globalEmitter = require('./global_emitter')
-const { BatchInterceptor } = require('@mswjs/interceptors')
-const {
-  default: nodeInterceptors,
-} = require('@mswjs/interceptors/presets/node')
-const { createResponse } = require('./create_response')
-const { once } = require('events')
+import { InterceptedRequestRouter } from './intercepted_request_router.js'
+import common from './common.js'
+import { inherits } from 'node:util'
+import http from 'node:http'
+import { intercept as debug } from './debug.js'
+import globalEmitter from './global_emitter.js'
+import { BatchInterceptor } from '@mswjs/interceptors'
+import nodeInterceptors from '@mswjs/interceptors/presets/node'
+import { createResponse } from './create_response.js'
+import { once } from 'node:events'
 
 const interceptor = new BatchInterceptor({
   name: 'nock-interceptor',
@@ -65,7 +61,9 @@ let allowNetConnect
  * // Enables real requests for url that includes google
  * nock.enableNetConnect(host => host.includes('google'));
  */
-function enableNetConnect(matcher) {
+export function enableNetConnect(
+  matcher?: string | RegExp | ((host: string) => boolean),
+): void {
   if (typeof matcher === 'string') {
     allowNetConnect = new RegExp(matcher)
   } else if (matcher instanceof RegExp) {
@@ -91,11 +89,11 @@ function isEnabledForNetConnect(options) {
  * @example
  * nock.disableNetConnect();
  */
-function disableNetConnect() {
+export function disableNetConnect() {
   allowNetConnect = undefined
 }
 
-function isOn() {
+export function isOn() {
   return !isOff()
 }
 
@@ -103,7 +101,7 @@ function isOff() {
   return process.env.NOCK_OFF === 'true'
 }
 
-function addInterceptor(key, interceptor, scope, scopeOptions, host) {
+export function addInterceptor(key, interceptor, scope, scopeOptions, host) {
   if (!(key in allInterceptors)) {
     allInterceptors[key] = { key, interceptors: [] }
   }
@@ -121,7 +119,7 @@ function addInterceptor(key, interceptor, scope, scopeOptions, host) {
   allInterceptors[key].interceptors.push(interceptor)
 }
 
-function remove(interceptor) {
+export function remove(interceptor) {
   if (interceptor.__nock_scope.shouldPersist() || --interceptor.counter > 0) {
     return
   }
@@ -138,7 +136,7 @@ function remove(interceptor) {
   })
 }
 
-function removeAll() {
+export function removeAll() {
   Object.keys(allInterceptors).forEach(function (key) {
     allInterceptors[key].interceptors.forEach(function (interceptor) {
       interceptor.scope.keyedInterceptors = {}
@@ -207,7 +205,7 @@ function interceptorsFor(options) {
   return undefined
 }
 
-function removeInterceptor(options) {
+export function removeInterceptor(options) {
   // Lazily import to avoid circular imports.
   const Interceptor = require('./interceptor')
 
@@ -327,7 +325,7 @@ function overrideClientRequest() {
   debug('ClientRequest overridden')
 }
 
-function restoreOverriddenClientRequest() {
+export function restoreOverriddenClientRequest() {
   debug('restoring overridden ClientRequest')
 
   //  Restore the ClientRequest we have overridden.
@@ -343,7 +341,7 @@ function restoreOverriddenClientRequest() {
   }
 }
 
-function isActive() {
+export function isActive() {
   return isNockActive
 }
 
@@ -355,19 +353,19 @@ function interceptorScopes() {
   return [...scopes]
 }
 
-function isDone() {
+export function isDone() {
   return interceptorScopes().every(scope => scope.isDone())
 }
 
-function pendingMocks() {
+export function pendingMocks() {
   return [].concat(...interceptorScopes().map(scope => scope.pendingMocks()))
 }
 
-function activeMocks() {
+export function activeMocks() {
   return [].concat(...interceptorScopes().map(scope => scope.activeMocks()))
 }
 
-function activate() {
+export function activate() {
   if (isNockActive) {
     throw new Error('Nock already active')
   }
@@ -425,19 +423,4 @@ function activate() {
   isNockActive = true
 }
 
-module.exports = {
-  addInterceptor,
-  remove,
-  removeAll,
-  removeInterceptor,
-  isOn,
-  activate,
-  isActive,
-  isDone,
-  pendingMocks,
-  activeMocks,
-  enableNetConnect,
-  disableNetConnect,
-  restoreOverriddenClientRequest,
-  abortPendingRequests: common.removeAllTimers,
-}
+export const abortPendingRequests = common.removeAllTimers

@@ -1,6 +1,4 @@
-'use strict'
-
-const { STATUS_CODES } = require('http')
+import { STATUS_CODES, type IncomingMessage } from 'node:http'
 
 /**
  * Creates a Fetch API `Response` instance from the given
@@ -15,10 +13,10 @@ const { STATUS_CODES } = require('http')
 const responseStatusCodesWithoutBody = [204, 205, 304]
 
 /**
- * @param {import('http').IncomingMessage} message
- * @param {AbortSignal} signal
+ * @param message
+ * @param signal
  */
-function createResponse(message, signal) {
+export function createResponse(message: IncomingMessage, signal: AbortSignal) {
   const responseBodyOrNull = responseStatusCodesWithoutBody.includes(
     message.statusCode || 200,
   )
@@ -43,11 +41,11 @@ function createResponse(message, signal) {
   // @mswjs/interceptors supports rawHeaders. https://github.com/mswjs/interceptors/pull/598
   const response = new Response(responseBodyOrNull, {
     status: message.statusCode,
-    statusText: message.statusMessage || STATUS_CODES[message.statusCode],
+    statusText:
+      message.statusMessage ||
+      (message.statusCode ? STATUS_CODES[message.statusCode] : undefined),
     headers: rawHeaders,
   })
 
   return response
 }
-
-module.exports = { createResponse }

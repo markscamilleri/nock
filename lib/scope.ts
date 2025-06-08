@@ -1,32 +1,30 @@
-'use strict'
-
 /**
  * @module nock/scope
  */
-const { scopeDebuglog } = require('./debug')
-const { addInterceptor, isOn } = require('./intercept')
-const common = require('./common')
-const assert = require('assert')
-const url = require('url')
-const { EventEmitter } = require('events')
-const Interceptor = require('./interceptor')
-
-const { URL, Url: LegacyUrl } = url
-let fs
-
-try {
-  fs = require('fs')
-} catch (err) {
-  // do nothing, we're in the browser
-}
+import { scopeDebuglog } from './debug.js'
+import { addInterceptor, isOn } from './intercept.js'
+import common from './common.js'
+import assert from 'node:assert'
+import url, { URL, Url as LegacyUrl } from 'node:url'
+import { EventEmitter } from 'node:events'
+import Interceptor from './interceptor.js'
+import fs from 'node:fs'
+import { DebugLogger } from 'node:util'
+import {
+  isLegacyUrl,
+  URI,
+  Options,
+  RequestBodyMatcher,
+  Definition,
+} from './types/index.js'
 
 /**
  * Normalizes the passed url for consistent internal processing
- * @param {string|LegacyUrl|URL} u
+ * @param u
  */
-function normalizeUrl(u) {
+function normalizeUrl(u: Exclude<URI, RegExp>) {
   if (!(u instanceof URL)) {
-    if (u instanceof LegacyUrl) {
+    if (isLegacyUrl(u)) {
       return normalizeUrl(new URL(url.format(u)))
     }
     // If the url is invalid, let the URL library report it
@@ -60,7 +58,7 @@ function normalizeUrl(u) {
 }
 
 /**
- * @param  {string|RegExp|LegacyUrl|URL} basePath
+ * @param  {URI} basePath
  * @param  {Object}   options
  * @param  {boolean}  options.allowUnmocked
  * @param  {string[]} options.badheaders
@@ -70,8 +68,24 @@ function normalizeUrl(u) {
  * @param  {Object}   options.reqheaders
  * @constructor
  */
-class Scope extends EventEmitter {
-  constructor(basePath, options) {
+export class Scope extends EventEmitter {
+  keyedInterceptors: Record<string, Interceptor[]> = {}
+  interceptors: Interceptor[] = []
+  transformPathFunction: ((path: string) => string) | null
+  transformRequestBodyFunction: ((body: string) => string) | null
+  matchHeaders: { name: string; value: string }[] = []
+  scopeOptions: Options
+  urlParts: any
+  _persist: boolean
+  contentLen: boolean
+  date: Date | null
+  basePath: URI
+  basePathname: string
+  port: string | number | null
+  _defaultReplyHeaders: string[]
+  logger: DebugLogger
+
+  constructor(basePath: URI, options?: Options) {
     super()
 
     this.keyedInterceptors = {}
@@ -91,7 +105,7 @@ class Scope extends EventEmitter {
 
     let logNamespace = String(basePath)
 
-    if (!(basePath instanceof RegExp)) {
+    if (!((basePath as unknown) instanceof RegExp)) {
       this.urlParts = normalizeUrl(basePath)
       this.port = this.urlParts.port
       this.basePathname = this.urlParts.pathname.replace(/\/$/, '')
@@ -102,7 +116,7 @@ class Scope extends EventEmitter {
     this.logger = scopeDebuglog(logNamespace)
   }
 
-  add(key, interceptor) {
+  add(key: string, interceptor: Interceptor) {
     if (!(key in this.keyedInterceptors)) {
       this.keyedInterceptors[key] = []
     }
@@ -116,7 +130,7 @@ class Scope extends EventEmitter {
     )
   }
 
-  remove(key, interceptor) {
+  remove(key: string, interceptor: Interceptor) {
     if (this._persist) {
       return
     }
@@ -129,7 +143,12 @@ class Scope extends EventEmitter {
     }
   }
 
-  intercept(uri, method, requestBody, interceptorOptions) {
+  intercept(
+    uri: URI,
+    method: string,
+    requestBody: RequestBodyMatcher,
+    interceptorOptions: Options,
+  ) {
     const ic = new Interceptor(
       this,
       uri,
@@ -142,35 +161,35 @@ class Scope extends EventEmitter {
     return ic
   }
 
-  get(uri, requestBody, options) {
+  get(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'GET', requestBody, options)
   }
 
-  post(uri, requestBody, options) {
+  post(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'POST', requestBody, options)
   }
 
-  put(uri, requestBody, options) {
+  put(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'PUT', requestBody, options)
   }
 
-  head(uri, requestBody, options) {
+  head(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'HEAD', requestBody, options)
   }
 
-  patch(uri, requestBody, options) {
+  patch(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'PATCH', requestBody, options)
   }
 
-  merge(uri, requestBody, options) {
+  merge(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'MERGE', requestBody, options)
   }
 
-  delete(uri, requestBody, options) {
+  delete(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'DELETE', requestBody, options)
   }
 
-  options(uri, requestBody, options) {
+  options(uri: URI, requestBody: RequestBodyMatcher, options: Options) {
     return this.intercept(uri, 'OPTIONS', requestBody, options)
   }
 
@@ -282,7 +301,7 @@ class Scope extends EventEmitter {
     return this
   }
 
-  replyDate(d) {
+  replyDate(d: Date) {
     this.date = d || new Date()
     return this
   }
@@ -292,20 +311,20 @@ class Scope extends EventEmitter {
   }
 }
 
-function loadDefs(path) {
+export function loadDefs(path: fs.PathLike): Definition[] {
   if (!fs) {
     throw new Error('No fs')
   }
 
   const contents = fs.readFileSync(path)
-  return JSON.parse(contents)
+  return JSON.parse(contents.toString())
 }
 
-function load(path) {
+export function load(path: fs.PathLike): Scope[] {
   return define(loadDefs(path))
 }
 
-function getStatusFromDefinition(nockDef) {
+function getStatusFromDefinition(nockDef: Definition): number {
   // Backward compatibility for when `status` was encoded as string in `reply`.
   if (nockDef.reply !== undefined) {
     const parsedReply = parseInt(nockDef.reply, 10)
@@ -339,7 +358,7 @@ function getScopeFromDefinition(nockDef) {
   return nockDef.scope
 }
 
-function tryJsonParse(string) {
+function tryJsonParse(string: string) {
   try {
     return JSON.parse(string)
   } catch (err) {
@@ -347,8 +366,8 @@ function tryJsonParse(string) {
   }
 }
 
-function define(nockDefs) {
-  const scopes = []
+export function define(nockDefs: Definition[]): Scope[] {
+  const scopes: Scope[] = []
 
   nockDefs.forEach(function (nockDef) {
     const nscope = getScopeFromDefinition(nockDef)
@@ -406,11 +425,4 @@ function define(nockDefs) {
   })
 
   return scopes
-}
-
-module.exports = {
-  Scope,
-  load,
-  loadDefs,
-  define,
 }

@@ -1,10 +1,36 @@
-'use strict'
+import { EventEmitter } from 'node:events'
+import { socket as debug } from './debug.js'
 
-const { EventEmitter } = require('events')
-const { socket: debug } = require('./debug')
+export type SocketOptions = {
+  port: number | string
+  family?: 4 | 6
+  proto?: 'http' | 'https'
+}
 
-module.exports = class Socket extends EventEmitter {
-  constructor(options) {
+export default class Socket extends EventEmitter {
+  private authorized: boolean = false
+  private encrypted: boolean = false
+  private bufferSize: number = 0
+  private writableLength: number = 0
+  private writable: boolean = true
+  private readable: boolean = true
+  private pending: boolean = false
+  private destroyed: boolean = false
+  private connecting: boolean = true
+  private _hadError: boolean = false
+  private timeout: number = 0
+
+  private remoteFamily: string = 'IPv4'
+  private localAddress: string = '127.0.0.1'
+  private remoteAddress: string = '127.0.0.1'
+
+  private localPort: number = 0
+  private remotePort: number = 0
+
+  private readableEnded: boolean = false
+  private writableFinished: boolean = false
+
+  constructor(options: SocketOptions) {
     super()
 
     // Pretend this is a TLSSocket
@@ -32,7 +58,8 @@ module.exports = class Socket extends EventEmitter {
     const ipv6 = options.family === 6
     this.remoteFamily = ipv6 ? 'IPv6' : 'IPv4'
     this.localAddress = this.remoteAddress = ipv6 ? '::1' : '127.0.0.1'
-    this.localPort = this.remotePort = parseInt(options.port)
+    this.localPort = this.remotePort =
+      typeof options.port === 'number' ? options.port : parseInt(options.port)
   }
 
   setNoDelay() {}
@@ -50,7 +77,7 @@ module.exports = class Socket extends EventEmitter {
     }
   }
 
-  setTimeout(timeoutMs, fn) {
+  setTimeout(timeoutMs: number, fn?: (...args: any[]) => void) {
     this.timeout = timeoutMs
     if (fn) {
       this.once('timeout', fn)
@@ -65,7 +92,7 @@ module.exports = class Socket extends EventEmitter {
    * Timeout events don't necessarily end the request.
    * While many clients choose to abort the request upon a timeout, Node itself does not.
    */
-  applyDelay(delayMs) {
+  applyDelay(delayMs: number) {
     if (this.timeout && delayMs > this.timeout) {
       debug('socket timeout')
       this.emit('timeout')
@@ -85,7 +112,7 @@ module.exports = class Socket extends EventEmitter {
    * For the purposes of Nock, we just need it to set some flags and on the first call
    * emit a 'close' and optional 'error' event. Both events propagate through the request object.
    */
-  destroy(err) {
+  destroy(err: unknown) {
     if (this.destroyed) {
       return this
     }

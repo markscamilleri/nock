@@ -1,21 +1,59 @@
-'use strict'
+import stringify from 'json-stringify-safe'
+import querystring from 'node:querystring'
+import { URL, URLSearchParams } from 'node:url'
 
-const stringify = require('json-stringify-safe')
-const querystring = require('querystring')
-const { URL, URLSearchParams } = require('url')
+import common from './common.js'
+import { remove } from './intercept.js'
+import matchBody from './match_body.js'
+import fs from 'node:fs'
+import { Scope } from './scope.js'
+import {
+  Body,
+  RequestBodyMatcher,
+  RequestHeaderMatcher,
+  StatusCode,
+  URI,
+} from './types/index.js'
+import { Options } from './types/options.js'
 
-const common = require('./common')
-const { remove } = require('./intercept')
-const matchBody = require('./match_body')
-
-let fs
-try {
-  fs = require('fs')
-} catch (err) {
-  // do nothing, we're in the browser
+export interface InterceptorSurface {
+  method: string
+  uri: URI
+  basePath: URI
+  path: URI
+  queries?: Record<string, any> | null
+  counter: number
+  body: Body | null
+  statusCode: StatusCode | null
+  optional: boolean
 }
 
-module.exports = class Interceptor {
+export default class Interceptor {
+  private scope: Scope
+  public method: string
+  public uri: URI
+  private interceptorMatchHeaders: RequestHeaderMatcher[]
+  private _key: string
+  public basePath: URI
+  public path: URI
+  public queries: Record<string, any> | null
+  private options: Options
+  public counter: number
+  private _requestBody: RequestBodyMatcher
+  private reqheaders: Record<
+    string,
+    string | string[] | ((value: string) => boolean)
+  >
+  private badheaders: string[]
+  private delayBodyInMs: number
+  private delayConnectionInMs: number
+  public optional: boolean = false
+
+  private errorMessage: string | null = null
+  public statusCode: StatusCode | null = null
+
+  public body: Body | null = null
+
   /**
    *
    * Valid argument types for `uri`:
@@ -26,7 +64,13 @@ module.exports = class Interceptor {
    *  - A synchronous function bound to this Interceptor instance. It's provided the pathname
    *    of requests and must return a boolean denoting if the request is considered a match.
    */
-  constructor(scope, uri, method, requestBody, interceptorOptions) {
+  constructor(
+    scope: Scope,
+    uri: URI,
+    method: string,
+    requestBody: RequestBodyMatcher,
+    interceptorOptions: Options,
+  ) {
     const uriIsStr = typeof uri === 'string'
     // Check for leading slash. Uri can be either a string or a regexp, but
     // When enabled filteringScope ignores the passed URL entirely so we skip validation.
@@ -79,7 +123,9 @@ module.exports = class Interceptor {
     this.optional = false
 
     // strip off literal query parameters if they were provided as part of the URI
-    if (uriIsStr && uri.includes('?')) {
+    // path is a string if urlIsStr is set to true - we include the final check
+    // for typescript
+    if (uriIsStr && uri.includes('?') && typeof this.path === 'string') {
       // localhost is a dummy value because the URL constructor errors for only relative inputs
       const parsedURL = new URL(this.path, 'http://localhost')
       this.path = parsedURL.pathname
@@ -99,7 +145,7 @@ module.exports = class Interceptor {
     return this
   }
 
-  replyWithError(errorMessage) {
+  replyWithError(errorMessage: string): Scope {
     this.errorMessage = errorMessage
 
     this.options = {
@@ -111,7 +157,7 @@ module.exports = class Interceptor {
     return this.scope
   }
 
-  reply(statusCode, body, rawHeaders) {
+  reply(statusCode: number, body, rawHeaders): Scope {
     // support the format of only passing in a callback
     if (typeof statusCode === 'function') {
       if (arguments.length > 1) {

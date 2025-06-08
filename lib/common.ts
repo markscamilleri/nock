@@ -1,17 +1,16 @@
-'use strict'
-
-const { common: debug } = require('./debug')
-const timers = require('timers')
-const url = require('url')
-const util = require('util')
-const http = require('http')
+import { common as debug } from './debug.js'
+import timers from 'node:timers'
+import url from 'node:url'
+import util from 'node:util'
+import http, { ClientRequest } from 'node:http'
+import { URI } from './types/uri.js'
 
 /**
  * Normalizes the request options so that it always has `host` property.
  *
  * @param  {Object} options - a parsed options object of the request
  */
-function normalizeRequestOptions(options) {
+export function normalizeRequestOptions(options) {
   options.proto = options.proto || 'http'
   options.port = options.port || (options.proto === 'http' ? 80 : 443)
   if (options.host) {
@@ -45,7 +44,7 @@ function normalizeRequestOptions(options) {
  * @param  {Object} buffer - a Buffer object
  * @returns {boolean}
  */
-function isUtf8Representable(buffer) {
+export function isUtf8Representable(buffer: Buffer): boolean {
   const utfEncodedBuffer = buffer.toString('utf8')
   const reconstructedBuffer = Buffer.from(utfEncodedBuffer, 'utf8')
   return reconstructedBuffer.equals(buffer)
@@ -55,7 +54,11 @@ function isUtf8Representable(buffer) {
  * In WHATWG URL vernacular, this returns the origin portion of a URL.
  * However, the port is not included if it's standard and not already present on the host.
  */
-function normalizeOrigin(proto, host, port) {
+export function normalizeOrigin(
+  proto: string,
+  host: string,
+  port: number | string,
+): string {
   const hostHasPort = host.includes(':')
   const portIsStandard =
     (proto === 'http' && (port === 80 || port === '80')) ||
@@ -77,7 +80,7 @@ function normalizeOrigin(proto, host, port) {
  * @param  {string} body
  * @return {string}
  */
-function stringifyRequest(options, body) {
+export function stringifyRequest(options, body: string) {
   const { method = 'GET', path = '', port } = options
   const origin = normalizeOrigin(options.proto, options.hostname, port)
 
@@ -94,17 +97,17 @@ function stringifyRequest(options, body) {
   return JSON.stringify(log, null, 2)
 }
 
-function isContentEncoded(headers) {
+export function isContentEncoded(headers) {
   const contentEncoding = headers['content-encoding']
   return typeof contentEncoding === 'string' && contentEncoding !== ''
 }
 
-function contentEncoding(headers, encoder) {
+export function contentEncoding(headers, encoder) {
   const contentEncoding = headers['content-encoding']
   return contentEncoding !== undefined && contentEncoding.toString() === encoder
 }
 
-function isJSONContent(headers) {
+export function isJSONContent(headers) {
   // https://tools.ietf.org/html/rfc8259
   const contentType = String(headers['content-type'] || '').toLowerCase()
   return contentType.startsWith('application/json')
@@ -115,7 +118,7 @@ function isJSONContent(headers) {
  *
  * Duplicates throw an error.
  */
-function headersFieldNamesToLowerCase(headers, throwOnDuplicate) {
+export function headersFieldNamesToLowerCase(headers, throwOnDuplicate) {
   if (!isPlainObject(headers)) {
     throw Error('Headers must be provided as an object')
   }
@@ -140,7 +143,7 @@ function headersFieldNamesToLowerCase(headers, throwOnDuplicate) {
   return lowerCaseHeaders
 }
 
-const headersFieldsArrayToLowerCase = headers => [
+export const headersFieldsArrayToLowerCase = (headers: string[]) => [
   ...new Set(headers.map(fieldName => fieldName.toLowerCase())),
 ]
 
@@ -154,7 +157,7 @@ const headersFieldsArrayToLowerCase = headers => [
  *
  *  https://nodejs.org/api/http.html#http_message_rawheaders
  */
-function headersInputToRawArray(headers) {
+export function headersInputToRawArray(headers) {
   if (headers === undefined) {
     return []
   }
@@ -189,7 +192,7 @@ function headersInputToRawArray(headers) {
  *
  * Header names/keys are lower-cased.
  */
-function headersArrayToObject(rawHeaders) {
+export function headersArrayToObject(rawHeaders) {
   if (!Array.isArray(rawHeaders)) {
     throw Error('Expected a header array')
   }
@@ -286,7 +289,7 @@ function addHeaderLine(headers, name, value) {
  * @headers   {Object} headers - object of header field names and values
  * @fieldName {String} field name - string with the case-insensitive field name
  */
-function deleteHeadersField(headers, fieldNameToDelete) {
+export function deleteHeadersField(headers, fieldNameToDelete) {
   if (!isPlainObject(headers)) {
     throw Error('headers must be an object')
   }
@@ -311,13 +314,13 @@ function deleteHeadersField(headers, fieldNameToDelete) {
  *  - The header field name. string
  *  - Index of the header field in the raw header array.
  */
-function forEachHeader(rawHeaders, callback) {
+export function forEachHeader(rawHeaders, callback) {
   for (let i = 0; i < rawHeaders.length; i += 2) {
     callback(rawHeaders[i + 1], rawHeaders[i], i)
   }
 }
 
-function percentDecode(str) {
+export function percentDecode(str) {
   try {
     return decodeURIComponent(str.replace(/\+/g, ' '))
   } catch (e) {
@@ -333,13 +336,13 @@ function percentDecode(str) {
  * https://tools.ietf.org/html/rfc3986
  * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
  */
-function percentEncode(str) {
+export function percentEncode(str) {
   return encodeURIComponent(str).replace(/[!'()*]/g, function (c) {
     return `%${c.charCodeAt(0).toString(16).toUpperCase()}`
   })
 }
 
-function matchStringOrRegexp(target, pattern) {
+export function matchStringOrRegexp(target, pattern) {
   const targetStr =
     target === undefined || target === null ? '' : String(target)
 
@@ -361,7 +364,7 @@ function matchStringOrRegexp(target, pattern) {
  *
  * @returns *[] the formatted [key, value] pair.
  */
-function formatQueryValue(key, value, stringFormattingFn) {
+export function formatQueryValue(key, value, stringFormattingFn) {
   // TODO: Probably refactor code to replace `switch(true)` with `if`/`else`.
   switch (true) {
     case typeof value === 'number': // fall-through
@@ -400,7 +403,7 @@ function formatQueryValue(key, value, stringFormattingFn) {
   return [key, value]
 }
 
-function isStream(obj) {
+export function isStream(obj) {
   return (
     obj &&
     typeof obj !== 'string' &&
@@ -418,7 +421,7 @@ function isStream(obj) {
  * Taken from the beginning of the native `ClientRequest`.
  * https://github.com/nodejs/node/blob/908292cf1f551c614a733d858528ffb13fb3a524/lib/_http_client.js#L68
  */
-function normalizeClientRequestArgs(input, options, cb) {
+export function normalizeClientRequestArgs(input, options, cb) {
   if (typeof input === 'string') {
     input = urlToOptions(new url.URL(input))
   } else if (input instanceof url.URL) {
@@ -478,7 +481,7 @@ function urlToOptions(url) {
  *  - The expected data can use regexp to compare values
  *  - JSON path notation and nested objects are considered equal
  */
-const dataEqual = (expected, actual) => {
+export const dataEqual = (expected, actual) => {
   if (isPlainObject(expected)) {
     expected = expand(expected)
   }
@@ -537,15 +540,15 @@ const wrapTimer =
     return id
   }
 
-const setTimeout = wrapTimer(timers.setTimeout, timeouts)
-const setImmediate = wrapTimer(timers.setImmediate, immediates)
+export const setTimeout = wrapTimer(timers.setTimeout, timeouts)
+export const setImmediate = wrapTimer(timers.setImmediate, immediates)
 
 function clearTimer(clear, ids) {
   ids.forEach(clear)
   ids.clear()
 }
 
-function removeAllTimers() {
+export function removeAllTimers() {
   debug('remove all timers')
   clearTimer(clearTimeout, timeouts)
   clearTimer(clearImmediate, immediates)
@@ -571,7 +574,7 @@ function removeAllTimers() {
  * @param {ClientRequest} req
  * @returns {boolean}
  */
-function isRequestDestroyed(req) {
+export function isRequestDestroyed(req: ClientRequest) {
   return !!(
     req.destroyed === true ||
     req.aborted ||
@@ -582,7 +585,7 @@ function isRequestDestroyed(req) {
 /**
  * @param {Request} request
  */
-function convertFetchRequestToClientRequest(request) {
+export function convertFetchRequestToClientRequest(request) {
   const url = new URL(request.url)
   const options = {
     ...urlToOptions(url),
@@ -609,7 +612,7 @@ function convertFetchRequestToClientRequest(request) {
  * @param {*} value
  * @returns {boolean}
  */
-function isPlainObject(value) {
+export function isPlainObject(value) {
   if (typeof value !== 'object' || value === null) return false
 
   if (Object.prototype.toString.call(value) !== '[object Object]') return false
@@ -640,7 +643,7 @@ const blocklistFilter = function (part) {
  * @example
  * { 'foo[bar][0]': 'baz' } -> { foo: { bar: [ 'baz' ] } }
  */
-const expand = input => {
+export const expand = input => {
   if (input === undefined || input === null) {
     return input
   }
@@ -688,34 +691,4 @@ const expand = input => {
     }
   }
   return result
-}
-
-module.exports = {
-  contentEncoding,
-  dataEqual,
-  deleteHeadersField,
-  expand,
-  forEachHeader,
-  formatQueryValue,
-  headersArrayToObject,
-  headersFieldNamesToLowerCase,
-  headersFieldsArrayToLowerCase,
-  headersInputToRawArray,
-  isContentEncoded,
-  isJSONContent,
-  isPlainObject,
-  isRequestDestroyed,
-  isStream,
-  isUtf8Representable,
-  matchStringOrRegexp,
-  normalizeClientRequestArgs,
-  normalizeOrigin,
-  normalizeRequestOptions,
-  percentDecode,
-  percentEncode,
-  removeAllTimers,
-  setImmediate,
-  setTimeout,
-  stringifyRequest,
-  convertFetchRequestToClientRequest,
 }

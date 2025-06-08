@@ -1,5 +1,3 @@
-'use strict'
+import { EventEmitter } from 'node:events'
 
-const { EventEmitter } = require('events')
-
-module.exports = new EventEmitter()
+export default new EventEmitter()
