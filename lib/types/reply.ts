@@ -10,6 +10,7 @@ export type ReplyHeaderFunction = (
   res: IncomingMessage,
   body: string | Buffer,
 ) => string | string[]
+
 export type ReplyHeaderValue = string | string[] | ReplyHeaderFunction
 export type ReplyHeaders =
   | Record<string, ReplyHeaderValue>

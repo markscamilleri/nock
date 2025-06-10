@@ -40,10 +40,7 @@ export default class Interceptor {
   private options: Options
   public counter: number
   private _requestBody: RequestBodyMatcher
-  private reqheaders: Record<
-    string,
-    string | string[] | ((value: string) => boolean)
-  >
+  private reqheaders: Record<string, RequestHeaderMatcher>
   private badheaders: string[]
   private delayBodyInMs: number
   private delayConnectionInMs: number
@@ -157,7 +154,49 @@ export default class Interceptor {
     return this.scope
   }
 
-  reply(statusCode: number, body, rawHeaders): Scope {
+  reply(
+    replyFnWithCallback: (
+      this: ReplyFnContext,
+      uri: string,
+      body: Body,
+      callback: (
+        err: NodeJS.ErrnoException | null,
+        result: ReplyFnResult,
+      ) => void,
+    ) => void,
+  ): Scope
+  reply(
+    replyFn: (
+      this: ReplyFnContext,
+      uri: string,
+      body: Body,
+    ) => ReplyFnResult | Promise<ReplyFnResult>,
+  ): Scope
+  reply(
+    statusCode: StatusCode,
+    replyBodyFnWithCallback: (
+      this: ReplyFnContext,
+      uri: string,
+      body: Body,
+      callback: (err: NodeJS.ErrnoException | null, result: ReplyBody) => void,
+    ) => void,
+    headers?: ReplyHeaders,
+  ): Scope
+  reply(
+    statusCode: StatusCode,
+    replyBodyFn: (
+      this: ReplyFnContext,
+      uri: string,
+      body: Body,
+    ) => ReplyBody | Promise<ReplyBody>,
+    headers?: ReplyHeaders,
+  ): Scope
+  reply(responseCode?: StatusCode, body?: Body, headers?: ReplyHeaders): Scope
+  reply(
+    statusCode?: StatusCode,
+    body?: Body,
+    rawHeaders?: ReplyHeaders,
+  ): Scope {
     // support the format of only passing in a callback
     if (typeof statusCode === 'function') {
       if (arguments.length > 1) {

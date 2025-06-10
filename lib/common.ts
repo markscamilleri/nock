@@ -3,14 +3,21 @@ import timers from 'node:timers'
 import url from 'node:url'
 import util from 'node:util'
 import http, { ClientRequest } from 'node:http'
-import { URI } from './types/uri.js'
+import {
+  ReplyHeaders,
+  ReplyHeaderValue,
+  ReqOptions,
+  RequestHeaderMatcher,
+  RequestHeaders,
+} from './types/index.js'
+import { Readable } from 'node:stream'
 
 /**
  * Normalizes the request options so that it always has `host` property.
  *
- * @param  {Object} options - a parsed options object of the request
+ * @param  {ReqOptions} options - a parsed options object of the request
  */
-export function normalizeRequestOptions(options) {
+export function normalizeRequestOptions(options: ReqOptions) {
   options.proto = options.proto || 'http'
   options.port = options.port || (options.proto === 'http' ? 80 : 443)
   if (options.host) {
@@ -28,7 +35,7 @@ export function normalizeRequestOptions(options) {
   debug('options.host in the end: %j', options.host)
 
   /// lowercase host names
-  ;['hostname', 'host'].forEach(function (attr) {
+  ;(['hostname', 'host'] as const).forEach(function (attr) {
     if (options[attr]) {
       options[attr] = options[attr].toLowerCase()
     }
@@ -41,7 +48,7 @@ export function normalizeRequestOptions(options) {
  * Returns true if the data contained in buffer can be reconstructed
  * from its utf8 representation.
  *
- * @param  {Object} buffer - a Buffer object
+ * @param  {Buffer} buffer - a Buffer object
  * @returns {boolean}
  */
 export function isUtf8Representable(buffer: Buffer): boolean {
@@ -55,11 +62,11 @@ export function isUtf8Representable(buffer: Buffer): boolean {
  * However, the port is not included if it's standard and not already present on the host.
  */
 export function normalizeOrigin(
-  proto: string,
-  host: string,
-  port: number | string,
+  proto?: string,
+  host?: string | null,
+  port?: number | string | null,
 ): string {
-  const hostHasPort = host.includes(':')
+  const hostHasPort = host?.includes(':')
   const portIsStandard =
     (proto === 'http' && (port === 80 || port === '80')) ||
     (proto === 'https' && (port === 443 || port === '443'))
@@ -70,7 +77,7 @@ export function normalizeOrigin(
 
 /**
  * Get high level information about request as string
- * @param  {Object} options
+ * @param  {ReqOptions} options
  * @param  {string} options.method
  * @param  {number|string} options.port
  * @param  {string} options.proto Set internally. always http or https
@@ -80,11 +87,18 @@ export function normalizeOrigin(
  * @param  {string} body
  * @return {string}
  */
-export function stringifyRequest(options, body: string) {
+export function stringifyRequest(options: ReqOptions, body: string): string {
   const { method = 'GET', path = '', port } = options
   const origin = normalizeOrigin(options.proto, options.hostname, port)
 
-  const log = {
+  type Log = {
+    method: string
+    url: string
+    headers: ReqOptions['headers']
+    body?: string
+  }
+
+  const log: Log = {
     method,
     url: `${origin}${path}`,
     headers: options.headers,
@@ -97,20 +111,27 @@ export function stringifyRequest(options, body: string) {
   return JSON.stringify(log, null, 2)
 }
 
-export function isContentEncoded(headers) {
-  const contentEncoding = headers['content-encoding']
+export function isContentEncoded(headers: ReplyHeaders): boolean {
+  const contentEncoding =
+    'content-encoding' in headers ? headers['content-encoding'] : undefined
   return typeof contentEncoding === 'string' && contentEncoding !== ''
 }
 
-export function contentEncoding(headers, encoder) {
-  const contentEncoding = headers['content-encoding']
+export function contentEncoding(
+  headers: RequestHeaders,
+  encoder: string,
+): boolean {
+  const contentEncoding =
+    headers && 'content-encoding' in headers
+      ? headers['content-encoding']
+      : undefined
   return contentEncoding !== undefined && contentEncoding.toString() === encoder
 }
 
-export function isJSONContent(headers) {
+export function isJSONContent(headers: RequestHeaders): boolean {
   // https://tools.ietf.org/html/rfc8259
-  const contentType = String(headers['content-type'] || '').toLowerCase()
-  return contentType.startsWith('application/json')
+  const contentType = (headers && headers['content-type']) ?? ''
+  return contentType.toString().toLowerCase().startsWith('application/json')
 }
 
 /**
@@ -118,12 +139,15 @@ export function isJSONContent(headers) {
  *
  * Duplicates throw an error.
  */
-export function headersFieldNamesToLowerCase(headers, throwOnDuplicate) {
+export function headersFieldNamesToLowerCase(
+  headers: Record<string, RequestHeaderMatcher>,
+  throwOnDuplicate: boolean,
+) {
   if (!isPlainObject(headers)) {
     throw Error('Headers must be provided as an object')
   }
 
-  const lowerCaseHeaders = {}
+  const lowerCaseHeaders: Record<string, RequestHeaderMatcher> = {}
   Object.entries(headers).forEach(([fieldName, fieldValue]) => {
     const key = fieldName.toLowerCase()
     if (lowerCaseHeaders[key] !== undefined) {
@@ -143,7 +167,7 @@ export function headersFieldNamesToLowerCase(headers, throwOnDuplicate) {
   return lowerCaseHeaders
 }
 
-export const headersFieldsArrayToLowerCase = (headers: string[]) => [
+export const headersFieldsArrayToLowerCase = (headers: string[]): string[] => [
   ...new Set(headers.map(fieldName => fieldName.toLowerCase())),
 ]
 
@@ -157,7 +181,9 @@ export const headersFieldsArrayToLowerCase = (headers: string[]) => [
  *
  *  https://nodejs.org/api/http.html#http_message_rawheaders
  */
-export function headersInputToRawArray(headers) {
+export function headersInputToRawArray(
+  headers?: ReplyHeaders,
+): ReplyHeaderValue[] {
   if (headers === undefined) {
     return []
   }
@@ -175,11 +201,13 @@ export function headersInputToRawArray(headers) {
 
   // [].concat(...) is used instead of Array.flat until v11 is the minimum Node version
   if (util.types.isMap(headers)) {
-    return [].concat(...Array.from(headers, ([k, v]) => [k.toString(), v]))
+    return new Array<ReplyHeaderValue>().concat(
+      ...Array.from(headers, ([k, v]) => [k.toString(), v]),
+    )
   }
 
   if (isPlainObject(headers)) {
-    return [].concat(...Object.entries(headers))
+    return new Array<ReplyHeaderValue>().concat(...Object.entries(headers))
   }
 
   throw new Error(
@@ -192,14 +220,16 @@ export function headersInputToRawArray(headers) {
  *
  * Header names/keys are lower-cased.
  */
-export function headersArrayToObject(rawHeaders) {
+export function headersArrayToObject(
+  rawHeaders: string[],
+): Record<string, ReplyHeaderValue> {
   if (!Array.isArray(rawHeaders)) {
     throw Error('Expected a header array')
   }
 
-  const accumulator = {}
+  const accumulator: Record<string, string | string[]> = {}
 
-  forEachHeader(rawHeaders, (value, fieldName) => {
+  forEachHeader(rawHeaders, (value: ReplyHeaderValue, fieldName: string) => {
     addHeaderLine(accumulator, fieldName, value)
   })
 
@@ -247,8 +277,12 @@ const noDuplicatesHeaders = new Set([
  *
  * While Node has the luxury of knowing `value` is always a string, we do an extra step of coercion at the top.
  */
-function addHeaderLine(headers, name, value) {
-  let values // code below expects `values` to be an array of strings
+const addHeaderLine = (
+  headers: Record<string, string[] | string>,
+  name: string,
+  value: ReplyHeaderValue,
+) => {
+  let values: string[] // code below expects `values` to be an array of strings
   if (typeof value === 'function') {
     // Function values are evaluated towards the end of the response, before that we use a placeholder
     // string just to designate that the header exists. Useful when `Content-Type` is set with a function.
@@ -265,7 +299,9 @@ function addHeaderLine(headers, name, value) {
     if (headers['set-cookie'] === undefined) {
       headers['set-cookie'] = values
     } else {
-      headers['set-cookie'].push(...values)
+      Array.isArray(headers['set-cookie'])
+        ? headers['set-cookie'].push(...values)
+        : (headers['set-cookie'] = [...values])
     }
   } else if (noDuplicatesHeaders.has(key)) {
     if (headers[key] === undefined) {
@@ -274,7 +310,9 @@ function addHeaderLine(headers, name, value) {
     }
   } else {
     if (headers[key] !== undefined) {
-      values = [headers[key], ...values]
+      values = Array.isArray(headers[key])
+        ? [...headers[key], ...values]
+        : [headers[key], ...values]
     }
 
     const separator = key === 'cookie' ? '; ' : ', '
@@ -289,7 +327,10 @@ function addHeaderLine(headers, name, value) {
  * @headers   {Object} headers - object of header field names and values
  * @fieldName {String} field name - string with the case-insensitive field name
  */
-export function deleteHeadersField(headers, fieldNameToDelete) {
+export function deleteHeadersField(
+  headers: RequestHeaders,
+  fieldNameToDelete: string,
+): void {
   if (!isPlainObject(headers)) {
     throw Error('headers must be an object')
   }
@@ -301,9 +342,9 @@ export function deleteHeadersField(headers, fieldNameToDelete) {
   const lowerCaseFieldNameToDelete = fieldNameToDelete.toLowerCase()
 
   // Search through the headers and delete all values whose field name matches the given field name.
-  Object.keys(headers)
+  Object.keys(headers ?? {})
     .filter(fieldName => fieldName.toLowerCase() === lowerCaseFieldNameToDelete)
-    .forEach(fieldName => delete headers[fieldName])
+    .forEach(fieldName => delete headers?.[fieldName])
 }
 
 /**
@@ -314,13 +355,16 @@ export function deleteHeadersField(headers, fieldNameToDelete) {
  *  - The header field name. string
  *  - Index of the header field in the raw header array.
  */
-export function forEachHeader(rawHeaders, callback) {
+export function forEachHeader(
+  rawHeaders: string[],
+  callback: (value: ReplyHeaderValue, name: string, index: number) => void,
+): void {
   for (let i = 0; i < rawHeaders.length; i += 2) {
     callback(rawHeaders[i + 1], rawHeaders[i], i)
   }
 }
 
-export function percentDecode(str) {
+export function percentDecode(str: string): string {
   try {
     return decodeURIComponent(str.replace(/\+/g, ' '))
   } catch (e) {
@@ -336,13 +380,16 @@ export function percentDecode(str) {
  * https://tools.ietf.org/html/rfc3986
  * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent
  */
-export function percentEncode(str) {
+export function percentEncode(str: string): string {
   return encodeURIComponent(str).replace(/[!'()*]/g, function (c) {
     return `%${c.charCodeAt(0).toString(16).toUpperCase()}`
   })
 }
 
-export function matchStringOrRegexp(target, pattern) {
+export function matchStringOrRegexp(
+  target: string | undefined | null,
+  pattern: RegExp | string,
+): boolean {
   const targetStr =
     target === undefined || target === null ? '' : String(target)
 
@@ -354,6 +401,18 @@ export function matchStringOrRegexp(target, pattern) {
   return targetStr === String(pattern)
 }
 
+type Keys = string | number
+type stringOrRegex = string | RegExp
+type OutputTypes =
+  | stringOrRegex
+  | OutputTypes[]
+  | { [key: string]: OutputTypes }
+
+type InputValue = stringOrRegex | number | boolean | null | undefined
+type InputValues = InputValue | InputValue[] | Record<string, InputValue>
+
+type FormatFunction = <FormatType extends Keys>(str: FormatType) => FormatType
+
 /**
  * Formats a query parameter.
  *
@@ -364,32 +423,46 @@ export function matchStringOrRegexp(target, pattern) {
  *
  * @returns *[] the formatted [key, value] pair.
  */
-export function formatQueryValue(key, value, stringFormattingFn) {
+export function formatQueryValue<
+  KeyType extends Keys,
+  ValueType extends InputValues,
+>(
+  key: KeyType,
+  value: ValueType,
+  stringFormattingFn?: FormatFunction,
+): [KeyType, OutputTypes] {
   // TODO: Probably refactor code to replace `switch(true)` with `if`/`else`.
+  let strValue: stringOrRegex | undefined = undefined
+  let arrValue: OutputTypes[] | undefined = undefined
+  let objValue: Record<string, OutputTypes> | undefined = undefined
   switch (true) {
     case typeof value === 'number': // fall-through
     case typeof value === 'boolean':
-      value = value.toString()
+      strValue = value.toString()
       break
     case value === null:
     case value === undefined:
-      value = ''
+      strValue = ''
       break
     case typeof value === 'string':
       if (stringFormattingFn) {
-        value = stringFormattingFn(value)
+        strValue = stringFormattingFn(value)
       }
       break
     case value instanceof RegExp:
+      strValue = value
       break
     case Array.isArray(value): {
-      value = value.map(function (val, idx) {
+      arrValue = value.map(function (val, idx) {
         return formatQueryValue(idx, val, stringFormattingFn)[1]
       })
       break
     }
     case typeof value === 'object': {
-      value = Object.entries(value).reduce(function (acc, [subKey, subVal]) {
+      objValue = Object.entries(value).reduce(function (
+        acc: Record<string, OutputTypes>,
+        [subKey, subVal],
+      ) {
         const subPair = formatQueryValue(subKey, subVal, stringFormattingFn)
         acc[subPair[0]] = subPair[1]
 
@@ -400,16 +473,24 @@ export function formatQueryValue(key, value, stringFormattingFn) {
   }
 
   if (stringFormattingFn) key = stringFormattingFn(key)
-  return [key, value]
+  return [key, strValue ?? arrValue ?? objValue ?? '']
 }
 
-export function isStream(obj) {
+export function isStream(obj: unknown): obj is Readable {
   return (
-    obj &&
+    obj !== undefined &&
+    obj !== null &&
+    typeof obj === 'object' &&
     typeof obj !== 'string' &&
     !Buffer.isBuffer(obj) &&
+    'setEncoding' in obj &&
     typeof obj.setEncoding === 'function'
   )
+}
+
+type NormalizedArgs = {
+  options: ReqOptions
+  callback: Function | undefined
 }
 
 /**
@@ -421,25 +502,41 @@ export function isStream(obj) {
  * Taken from the beginning of the native `ClientRequest`.
  * https://github.com/nodejs/node/blob/908292cf1f551c614a733d858528ffb13fb3a524/lib/_http_client.js#L68
  */
-export function normalizeClientRequestArgs(input, options, cb) {
-  if (typeof input === 'string') {
-    input = urlToOptions(new url.URL(input))
-  } else if (input instanceof url.URL) {
-    input = urlToOptions(input)
+export function normalizeClientRequestArgs(
+  input: string | url.URL,
+  options: ReqOptions,
+  callback?: Function,
+): NormalizedArgs
+export function normalizeClientRequestArgs(
+  options: ReqOptions,
+  callback: Function,
+): NormalizedArgs
+export function normalizeClientRequestArgs(
+  inputOrOptions: string | url.URL | ReqOptions,
+  optionsOrCallback: ReqOptions | Function,
+  cb?: Function,
+): NormalizedArgs {
+  let input: ReqOptions | null = null
+  let options: ReqOptions
+  let callback: Function | undefined = undefined
+
+  if (typeof inputOrOptions === 'string') {
+    input = urlToOptions(new url.URL(inputOrOptions))
+  } else if (inputOrOptions instanceof url.URL) {
+    input = urlToOptions(inputOrOptions)
   } else {
-    cb = options
-    options = input
+    options = inputOrOptions
     input = null
   }
 
-  if (typeof options === 'function') {
-    cb = options
+  if (typeof optionsOrCallback === 'function') {
+    callback = optionsOrCallback
     options = input || {}
   } else {
-    options = Object.assign(input || {}, options)
+    options = Object.assign(input || {}, optionsOrCallback)
   }
 
-  return { options, callback: cb }
+  return { options, callback }
 }
 
 /**
@@ -449,8 +546,8 @@ export function normalizeClientRequestArgs(input, options, cb) {
  * This was copied from Node's source
  * https://github.com/nodejs/node/blob/908292cf1f551c614a733d858528ffb13fb3a524/lib/internal/url.js#L1257
  */
-function urlToOptions(url) {
-  const options = {
+function urlToOptions(url: url.URL): ReqOptions {
+  const options: ReqOptions = {
     protocol: url.protocol,
     hostname:
       typeof url.hostname === 'string' && url.hostname.startsWith('[')
@@ -481,7 +578,7 @@ function urlToOptions(url) {
  *  - The expected data can use regexp to compare values
  *  - JSON path notation and nested objects are considered equal
  */
-export const dataEqual = (expected, actual) => {
+export const dataEqual = (expected: unknown, actual: unknown): boolean => {
   if (isPlainObject(expected)) {
     expected = expand(expected)
   }
@@ -491,14 +588,33 @@ export const dataEqual = (expected, actual) => {
   return deepEqual(expected, actual)
 }
 
+type DeepEqualFunction =
+  | (<ExpectedType extends RegExp>(
+      expected: ExpectedType,
+      actual: string,
+    ) => boolean)
+  | (<ExpectedType>(expected: ExpectedType, actual: ExpectedType) => boolean)
+
 /**
  * Performs a recursive strict comparison between two values.
  *
  * Expected values or leaf nodes of expected object values that are RegExp use test() for comparison.
  */
-function deepEqual(expected, actual) {
+function deepEqual<ExpectedType>(
+  expected: ExpectedType,
+  actual: ExpectedType,
+): boolean
+function deepEqual(expected: RegExp, actual: string): boolean
+function deepEqual<ExpectedType>(
+  expected: ExpectedType | RegExp,
+  actual: ExpectedType | string,
+): boolean {
   debug('deepEqual comparing', typeof expected, expected, typeof actual, actual)
   if (expected instanceof RegExp) {
+    // If the expected value is a RegExp, we expect the actual value to be a string
+    if (typeof actual !== 'string') {
+      return false
+    }
     return expected.test(actual)
   }
 
@@ -521,15 +637,31 @@ function deepEqual(expected, actual) {
   return expected === actual
 }
 
-const timeouts = new Set()
-const immediates = new Set()
+const timeouts = new Set<NodeJS.Timeout>()
+const immediates = new Set<NodeJS.Immediate>()
 
-const wrapTimer =
+type Timers = NodeJS.Timeout | NodeJS.Immediate
+
+type TimerCallback<TimerType extends Timers> = <
+  CallbackFunctionType extends (...args: any) => any,
+>(
+  callback: CallbackFunctionType,
+  ...timerArgs: Parameters<CallbackFunctionType>
+) => TimerType
+
+type TimerWrapper = <TimerType extends Timers>(
+  timer: (...args: any[]) => TimerType,
+  ids: Set<TimerType>,
+) => TimerCallback<TimerType>
+
+const wrapTimer: TimerWrapper =
   (timer, ids) =>
-  (callback, ...timerArgs) => {
-    const cb = (...callbackArgs) => {
+  <CallbackFunctionType extends (...args: any) => any>(
+    callback: CallbackFunctionType,
+    ...timerArgs: Parameters<CallbackFunctionType>
+  ) => {
+    const cb = (...callbackArgs: Parameters<CallbackFunctionType>) => {
       try {
-        // eslint-disable-next-line n/no-callback-literal
         callback(...callbackArgs)
       } finally {
         ids.delete(id)
@@ -543,7 +675,10 @@ const wrapTimer =
 export const setTimeout = wrapTimer(timers.setTimeout, timeouts)
 export const setImmediate = wrapTimer(timers.setImmediate, immediates)
 
-function clearTimer(clear, ids) {
+function clearTimer<TimerType>(
+  clear: (id: TimerType) => void,
+  ids: Set<TimerType>,
+) {
   ids.forEach(clear)
   ids.clear()
 }
@@ -585,7 +720,7 @@ export function isRequestDestroyed(req: ClientRequest) {
 /**
  * @param {Request} request
  */
-export function convertFetchRequestToClientRequest(request) {
+export function convertFetchRequestToClientRequest(request: Request) {
   const url = new URL(request.url)
   const options = {
     ...urlToOptions(url),
@@ -612,7 +747,9 @@ export function convertFetchRequestToClientRequest(request) {
  * @param {*} value
  * @returns {boolean}
  */
-export function isPlainObject(value) {
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false
 
   if (Object.prototype.toString.call(value) !== '[object Object]') return false
@@ -631,7 +768,7 @@ export function isPlainObject(value) {
 }
 
 const prototypePollutionBlockList = ['__proto__', 'prototype', 'constructor']
-const blocklistFilter = function (part) {
+const blocklistFilter = function (part: string) {
   return prototypePollutionBlockList.indexOf(part) === -1
 }
 
@@ -643,16 +780,19 @@ const blocklistFilter = function (part) {
  * @example
  * { 'foo[bar][0]': 'baz' } -> { foo: { bar: [ 'baz' ] } }
  */
-export const expand = input => {
+export const expand = (
+  input: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null | undefined => {
   if (input === undefined || input === null) {
     return input
   }
 
   const keys = Object.keys(input)
 
-  const result = {}
-  let resultPtr = result
-
+  const result: Record<string, unknown> = {}
+  // TypeScript: resultPtr is used as both object and array depending on the path.
+  // Using 'any' here is intentional to avoid complex type gymnastics and runtime changes.
+  let resultPtr: any = result
   for (let path of keys) {
     const originalPath = path
     if (path.indexOf('[') >= 0) {
@@ -691,4 +831,34 @@ export const expand = input => {
     }
   }
   return result
+}
+
+export default {
+  contentEncoding,
+  dataEqual,
+  deleteHeadersField,
+  expand,
+  forEachHeader,
+  formatQueryValue,
+  headersArrayToObject,
+  headersFieldNamesToLowerCase,
+  headersFieldsArrayToLowerCase,
+  headersInputToRawArray,
+  isContentEncoded,
+  isJSONContent,
+  isPlainObject,
+  isRequestDestroyed,
+  isStream,
+  isUtf8Representable,
+  matchStringOrRegexp,
+  normalizeClientRequestArgs,
+  normalizeOrigin,
+  normalizeRequestOptions,
+  percentDecode,
+  percentEncode,
+  removeAllTimers,
+  setImmediate,
+  setTimeout,
+  stringifyRequest,
+  convertFetchRequestToClientRequest,
 }
